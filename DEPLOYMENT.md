@@ -1,28 +1,37 @@
-# 🚀 Guía de Deployment - Strapi en AWS EC2
+# 🚀 Guía de Deployment - Strapi en AWS EC2 con Git
 
-Esta guía te ayudará a deployar tu aplicación Strapi en AWS EC2 expuesta directamente con HTTPS.
+Esta guía te ayudará a deployar tu aplicación Strapi en AWS EC2 usando Git y Docker.
 
 ---
 
 ## 📋 Requisitos Previos
 
 - ✅ Cuenta de AWS con EC2 configurado
+- ✅ Cuenta de GitHub
 - ✅ Cuenta de DockerHub
 - ✅ Cliente SSH para conectarte al servidor
-- ✅ Conocimientos básicos de Linux/Ubuntu
+- ✅ Git instalado localmente
 
 ---
 
-## Paso 1: Subir Imagen a DockerHub
+## 🐳 Paso 1: Preparar Imagen Docker
 
-### 1.1 Login a DockerHub
+### 1.1 Build Local (Opcional)
+
+Si quieres probar localmente antes de subir:
 
 ```bash
-docker login
-# Ingresa tu usuario y password
+# Build imagen
+docker build -t strapi-app:latest .
+
+# Probar localmente
+docker-compose up -d
+
+# Ver logs
+docker-compose logs -f strapi
 ```
 
-### 1.2 Tag y Push la Imagen
+### 1.2 Subir a DockerHub
 
 ```bash
 # Tag la imagen
@@ -32,15 +41,32 @@ docker tag strapi-app:latest k3n5h1n/strapi-blog:latest
 docker push k3n5h1n/strapi-blog:latest
 ```
 
-### 1.3 Verificar
-
-Visita: `https://hub.docker.com/r/k3n5h1n/strapi-blog`
+**Verificar**: `https://hub.docker.com/r/k3n5h1n/strapi-blog`
 
 ---
 
-## Paso 2: Configurar Servidor EC2
+## 📦 Paso 2: Preparar Repositorio Git
 
-### 2.1 Crear Instancia EC2
+### 2.1 Commit y Push
+
+```bash
+# Agregar cambios
+git add .
+
+# Commit
+git commit -m "Update Strapi configuration"
+
+# Push a GitHub
+git push origin master
+```
+
+**Repositorio**: `https://github.com/miguel-anay/strapi_blog.git`
+
+---
+
+## ☁️ Paso 3: Configurar Servidor EC2
+
+### 3.1 Crear Instancia EC2
 
 1. **Tipo de Instancia**: t2.small o t2.medium (mínimo)
 2. **Sistema Operativo**: Ubuntu 24.04 LTS
@@ -49,13 +75,13 @@ Visita: `https://hub.docker.com/r/k3n5h1n/strapi-blog`
    - SSH (22) - Tu IP
    - Custom TCP (1337) - 0.0.0.0/0 (Puerto de Strapi)
 
-### 2.2 Conectar via SSH
+### 3.2 Conectar via SSH
 
 ```bash
-ssh -i tu-llave.pem ubuntu@tu-ip-ec2
+ssh -i tu-llave.pem ubuntu@TU-IP-EC2
 ```
 
-### 2.3 Actualizar Sistema
+### 3.3 Actualizar Sistema
 
 ```bash
 sudo apt update && sudo apt upgrade -y
@@ -63,9 +89,9 @@ sudo apt update && sudo apt upgrade -y
 
 ---
 
-## Paso 3: Instalar Dependencias en EC2
+## 🔧 Paso 4: Instalar Dependencias en EC2
 
-### 3.1 Instalar Docker
+### 4.1 Instalar Docker
 
 ```bash
 # Instalar Docker
@@ -82,134 +108,130 @@ newgrp docker
 docker --version
 ```
 
-### 3.2 Instalar Docker Compose
+### 4.2 Instalar Docker Compose
 
 ```bash
 sudo apt install docker-compose -y
 docker-compose --version
 ```
 
+### 4.3 Instalar Git
+
+```bash
+sudo apt install git -y
+git --version
+```
+
 ---
 
-## Paso 4: Preparar Aplicación en EC2
+## 📥 Paso 5: Clonar Repositorio en EC2
 
-### 4.1 Crear Directorio del Proyecto
-
-```bash
-mkdir -p ~/strapi
-cd ~/strapi
-```
-
-### 4.2 Generar Secrets
+### 5.1 Clonar desde GitHub
 
 ```bash
-# Generar 6 secrets seguros (uno por cada variable)
-openssl rand -base64 32
-openssl rand -base64 32
-openssl rand -base64 32
-openssl rand -base64 32
-openssl rand -base64 32
-openssl rand -base64 32
+cd /home/ubuntu
+git clone https://github.com/miguel-anay/strapi_blog.git
+cd strapi_blog
 ```
 
-### 4.3 Crear archivo .env
+### 5.2 Verificar Archivos
+
+```bash
+ls -la
+# Deberías ver: Dockerfile, docker-compose.prod.yml, src/, config/, etc.
+```
+
+---
+
+## ⚙️ Paso 6: Configurar Variables de Entorno
+
+### 6.1 Crear archivo .env
+
+⚠️ **IMPORTANTE**: El archivo `.env` NO está en Git por seguridad. Debes crearlo manualmente.
 
 ```bash
 nano .env
 ```
 
-Contenido del `.env` (reemplaza los valores):
+### 6.2 Contenido del .env
+
+Copia y pega esto, reemplazando los valores:
 
 ```bash
-# Server
+# ===========================================
+# SERVER
+# ===========================================
 HOST=0.0.0.0
 PORT=1337
 NODE_ENV=production
 
-# Database
+# ===========================================
+# DOCKER IMAGE
+# ===========================================
+DOCKER_IMAGE=k3n5h1n/strapi-blog:latest
+
+# ===========================================
+# SECURITY SECRETS
+# ===========================================
+# ⚠️ GENERAR NUEVOS VALORES con: openssl rand -base64 32
+APP_KEYS=secret1,secret2,secret3,secret4
+API_TOKEN_SALT=tuSecretAqui
+ADMIN_JWT_SECRET=tuSecretAqui
+TRANSFER_TOKEN_SALT=tuSecretAqui
+ENCRYPTION_KEY=tuSecretAqui
+JWT_SECRET=tuSecretAqui
+
+# ===========================================
+# DATABASE
+# ===========================================
 DATABASE_CLIENT=sqlite
 DATABASE_FILENAME=.tmp/data.db
 
-# Docker Image (tu imagen de DockerHub)
-DOCKER_IMAGE=tu-usuario/strapi-app:latest
-
-# Security Secrets (USAR VALORES GENERADOS ARRIBA)
-APP_KEYS=secret1,secret2,secret3,secret4
-API_TOKEN_SALT=secret5
-ADMIN_JWT_SECRET=secret6
-TRANSFER_TOKEN_SALT=secret7
-ENCRYPTION_KEY=secret8
-JWT_SECRET=secret9
-
-# Admin cookies (true para HTTPS, false para HTTP)
+# ===========================================
+# ADMIN (false para HTTP, true para HTTPS)
+# ===========================================
 ADMIN_SECURE_COOKIE=false
 ```
 
-**⚠️ IMPORTANTE**:
-- Si usas HTTPS: `ADMIN_SECURE_COOKIE=true`
-- Si usas HTTP: `ADMIN_SECURE_COOKIE=false`
-
-### 4.4 Crear docker-compose.prod.yml
+### 6.3 Generar Secrets Seguros
 
 ```bash
-nano docker-compose.prod.yml
+# Generar 6 secrets seguros
+openssl rand -base64 32
+openssl rand -base64 32
+openssl rand -base64 32
+openssl rand -base64 32
+openssl rand -base64 32
+openssl rand -base64 32
 ```
 
-Contenido:
+Copia estos valores y reemplaza en el `.env`.
 
-```yaml
-version: "3.8"
+**💡 Tip**: Si ya tienes un `.env` local con datos, puedes transferirlo con SCP:
 
-services:
-  strapi:
-    container_name: strapi
-    image: ${DOCKER_IMAGE:-strapi-app:latest}
-    restart: unless-stopped
-    environment:
-      HOST: 0.0.0.0
-      PORT: 1337
-      NODE_ENV: production
-      ADMIN_SECURE_COOKIE: ${ADMIN_SECURE_COOKIE:-false}
-      DATABASE_CLIENT: sqlite
-      DATABASE_FILENAME: .tmp/data.db
-      APP_KEYS: ${APP_KEYS}
-      API_TOKEN_SALT: ${API_TOKEN_SALT}
-      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET}
-      TRANSFER_TOKEN_SALT: ${TRANSFER_TOKEN_SALT}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      JWT_SECRET: ${JWT_SECRET}
-    ports:
-      - "1337:1337"
-    volumes:
-      - ./data:/app/.tmp
-      - ./public/uploads:/app/public/uploads
-    networks:
-      - strapi
-
-networks:
-  strapi:
-    name: strapi-network
-    driver: bridge
+```bash
+# Desde tu máquina local
+scp -i tu-llave.pem .env ubuntu@TU-IP-EC2:/home/ubuntu/strapi_blog/
 ```
 
 ---
 
-## Paso 5: Deployar Strapi
+## 🚀 Paso 7: Deployar Strapi
 
-### 5.1 Pull de la Imagen
+### 7.1 Pull de la Imagen desde DockerHub
 
 ```bash
-cd ~/strapi
+cd /home/ubuntu/strapi_blog
 docker pull k3n5h1n/strapi-blog:latest
 ```
 
-### 5.2 Iniciar Servicios
+### 7.2 Iniciar Servicios con Docker Compose
 
 ```bash
 docker-compose -f docker-compose.prod.yml up -d
 ```
 
-### 5.3 Verificar Estado
+### 7.3 Verificar Estado
 
 ```bash
 # Ver logs
@@ -219,22 +241,67 @@ docker-compose -f docker-compose.prod.yml logs -f strapi
 docker-compose -f docker-compose.prod.yml ps
 ```
 
-### 5.4 Acceder a la Aplicación
+### 7.4 Acceder a la Aplicación
 
-1. Abre tu navegador: `http://tu-ip-ec2:1337/admin`
-2. Crea tu primer usuario administrador
+1. Abre tu navegador: `http://TU-IP-EC2:1337/admin`
+2. Crea tu primer usuario administrador (si es primera vez)
 3. ¡Listo! 🎉
 
 ---
 
-## Acceso
+## 🔄 Paso 8: Actualizar la Aplicación
 
-- **Panel Admin**: `http://tu-ip-ec2:1337/admin`
-- **API**: `http://tu-ip-ec2:1337/api`
+Cuando hagas cambios en tu código:
+
+### 8.1 Desde tu Máquina Local
+
+```bash
+# 1. Hacer cambios en el código
+# 2. Build nueva imagen
+docker build -t strapi-app:latest .
+
+# 3. Tag y push a DockerHub
+docker tag strapi-app:latest k3n5h1n/strapi-blog:latest
+docker push k3n5h1n/strapi-blog:latest
+
+# 4. Commit y push a GitHub
+git add .
+git commit -m "Descripción de cambios"
+git push origin master
+```
+
+### 8.2 En el Servidor EC2
+
+```bash
+# Conectar al servidor
+ssh -i tu-llave.pem ubuntu@TU-IP-EC2
+
+# Ir al directorio
+cd /home/ubuntu/strapi_blog
+
+# Pull cambios de Git (archivos de configuración)
+git pull origin master
+
+# Pull nueva imagen de Docker
+docker-compose -f docker-compose.prod.yml pull
+
+# Reiniciar servicios
+docker-compose -f docker-compose.prod.yml up -d
+
+# Ver logs
+docker-compose -f docker-compose.prod.yml logs -f strapi
+```
 
 ---
 
-## Mantenimiento
+## 🌐 Acceso
+
+- **Panel Admin**: `http://TU-IP-EC2:1337/admin`
+- **API**: `http://TU-IP-EC2:1337/api`
+
+---
+
+## 🛠️ Mantenimiento
 
 ### Ver Logs
 
@@ -248,82 +315,164 @@ docker-compose -f docker-compose.prod.yml logs -f strapi
 docker-compose -f docker-compose.prod.yml restart strapi
 ```
 
-### Actualizar Aplicación
+### Detener Servicios
 
 ```bash
-# 1. Hacer cambios locales y rebuild
-docker build -t strapi-app:latest .
-docker tag strapi-app:latest k3n5h1n/strapi-blog:latest
-docker push k3n5h1n/strapi-blog:latest
-
-# 2. En el servidor EC2
-cd ~/strapi
-docker-compose -f docker-compose.prod.yml pull
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose -f docker-compose.prod.yml down
 ```
 
 ### Backup de Base de Datos
 
 ```bash
 # Backup manual
-cd ~/strapi
+cd /home/ubuntu/strapi_blog
 tar -czf backup-$(date +%Y%m%d).tar.gz data/ public/uploads/
 
 # Descargar a local
-scp -i tu-llave.pem ubuntu@tu-ip-ec2:~/strapi/backup-*.tar.gz ./
+scp -i tu-llave.pem ubuntu@TU-IP-EC2:/home/ubuntu/strapi_blog/backup-*.tar.gz ./
+```
+
+### Restaurar Base de Datos
+
+```bash
+# Subir backup al servidor
+scp -i tu-llave.pem backup-20231017.tar.gz ubuntu@TU-IP-EC2:/home/ubuntu/strapi_blog/
+
+# En el servidor
+cd /home/ubuntu/strapi_blog
+docker-compose -f docker-compose.prod.yml down
+tar -xzf backup-20231017.tar.gz
+docker-compose -f docker-compose.prod.yml up -d
 ```
 
 ---
 
-## Problemas Comunes
+## 🐛 Problemas Comunes
 
 ### 1. No puedo acceder al puerto 1337
+
 **Solución**: Verificar Security Group de EC2 que permita el puerto 1337
 
+```bash
+# En AWS Console > EC2 > Security Groups
+# Agregar regla: Custom TCP | Port 1337 | Source: 0.0.0.0/0
+```
+
 ### 2. Error 502 Bad Gateway
+
 **Solución**: Verificar que Strapi esté corriendo:
+
 ```bash
 docker-compose -f docker-compose.prod.yml ps
 docker-compose -f docker-compose.prod.yml logs strapi
 ```
 
 ### 3. No puede crear usuario admin
+
 **Solución**: Si usas HTTP, asegúrate que `ADMIN_SECURE_COOKIE=false` en el .env
 
-### 4. Mensaje CSP en logs
-**Nota**: El mensaje de Content Security Policy es normal, no es un error:
+### 4. Error "Cannot send secure cookie"
+
+**Solución**: Verifica que `ADMIN_SECURE_COOKIE=false` en tu `.env` si no usas HTTPS.
+
+### 5. La imagen Docker no se actualiza
+
+**Solución**: Pull explícito de la nueva imagen:
+
+```bash
+docker-compose -f docker-compose.prod.yml pull
+docker-compose -f docker-compose.prod.yml down
+docker-compose -f docker-compose.prod.yml up -d
 ```
-connect-src 'self' https:;img-src 'self' data: blob: ...
+
+### 6. Cambios en Git no se reflejan
+
+**Solución**: Asegúrate de hacer `git pull` en el servidor:
+
+```bash
+cd /home/ubuntu/strapi_blog
+git pull origin master
 ```
-Esto es solo información de headers de seguridad, no afecta el funcionamiento.
 
 ---
 
-## Seguridad en Producción
+## 🔒 Seguridad en Producción
 
 ### Recomendaciones:
 
-1. **Usar HTTPS**: Configura un certificado SSL/TLS
+1. **Usar HTTPS**: Configura un certificado SSL/TLS con Let's Encrypt
 2. **Firewall**: Limita acceso al puerto 1337 solo desde IPs conocidas
-3. **Backups**: Automatiza backups regulares
-4. **Actualiza**: Mantén Docker y Strapi actualizados
+3. **Secrets**: NUNCA subas el archivo `.env` a Git
+4. **Backups**: Automatiza backups regulares de la base de datos
+5. **Actualiza**: Mantén Docker y Strapi actualizados
+
+### Configurar HTTPS (Opcional)
+
+Si quieres usar HTTPS con un dominio:
+
+1. Obtén un dominio y apúntalo a tu IP de EC2
+2. Instala Nginx y Certbot:
+   ```bash
+   sudo apt install nginx certbot python3-certbot-nginx -y
+   ```
+3. Configura Nginx como proxy inverso
+4. Obtén certificado SSL:
+   ```bash
+   sudo certbot --nginx -d tudominio.com
+   ```
+5. Cambia en `.env`:
+   ```bash
+   ADMIN_SECURE_COOKIE=true
+   ```
+
+---
+
+## 📊 Monitoreo
+
+### Verificar Salud del Contenedor
+
+```bash
+docker inspect strapi | grep Status -A 5
+```
+
+### Verificar Uso de Recursos
+
+```bash
+docker stats strapi
+```
+
+### Health Check Automático
+
+El `docker-compose.prod.yml` incluye un health check que verifica la salud de Strapi cada 30 segundos.
 
 ---
 
 ## ✅ Checklist de Deployment
 
-- [ ] Imagen subida a DockerHub
+- [ ] Imagen Docker subida a DockerHub (`k3n5h1n/strapi-blog:latest`)
+- [ ] Código pusheado a GitHub (`miguel-anay/strapi_blog`)
 - [ ] EC2 creado y configurado
 - [ ] Security Group con puerto 1337 abierto
-- [ ] Docker y Docker Compose instalados
-- [ ] Variables de entorno configuradas (.env)
-- [ ] docker-compose.prod.yml creado
-- [ ] Strapi corriendo en Docker
+- [ ] Docker y Docker Compose instalados en EC2
+- [ ] Git instalado en EC2
+- [ ] Repositorio clonado en EC2
+- [ ] Archivo `.env` creado con secrets seguros
+- [ ] Imagen Docker pulled desde DockerHub
+- [ ] Strapi corriendo con `docker-compose`
 - [ ] Usuario admin creado
 - [ ] Backup configurado
 
 ---
 
-**¡Tu aplicación Strapi está en producción! 🚀**
+## 🔗 Enlaces Útiles
 
-Para usar con HTTPS, necesitarás configurar un certificado SSL y cambiar `ADMIN_SECURE_COOKIE=true` en tu .env.
+- **Repositorio GitHub**: https://github.com/miguel-anay/strapi_blog
+- **Imagen DockerHub**: https://hub.docker.com/r/k3n5h1n/strapi-blog
+- **Documentación Strapi**: https://docs.strapi.io
+- **Docker Docs**: https://docs.docker.com
+
+---
+
+**¡Tu aplicación Strapi está lista para producción con Git! 🚀**
+
+Para actualizaciones futuras, simplemente push a GitHub y pull en el servidor.

@@ -3,7 +3,7 @@ version: "3.8"
 services:
   strapi:
     container_name: strapi
-    image: ${DOCKER_IMAGE:-strapi-app:latest}
+    image: ${DOCKER_IMAGE:-k3n5h1n/strapi-blog:latest}
     restart: unless-stopped
     environment:
       # Server
