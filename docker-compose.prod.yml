@@ -10,13 +10,14 @@ services:
       HOST: 0.0.0.0
       PORT: 1337
       NODE_ENV: production
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:1337}
 
       # Production: Cookies seguras para HTTPS
       ADMIN_SECURE_COOKIE: ${ADMIN_SECURE_COOKIE:-true}
 
       # Database - SQLite
       DATABASE_CLIENT: sqlite
-      DATABASE_FILENAME: .tmp/data.db
+      DATABASE_FILENAME: data.db
 
       # Secrets
       APP_KEYS: ${APP_KEYS}
