@@ -1,0 +1,18 @@
+{
+  "collectionName": "components_shared_codes",
+  "info": {
+    "displayName": "CODE",
+    "icon": "file"
+  },
+  "options": {},
+  "attributes": {
+    "TYPESCRIPT": {
+      "type": "customField",
+      "customField": "plugin::strapi-code-editor-custom-field.code-editor-text",
+      "options": {
+        "language": "typescript"
+      }
+    }
+  },
+  "config": {}
+}

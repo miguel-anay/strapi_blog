@@ -4,4 +4,6 @@ export default ({ env }) => ({
   app: {
     keys: env.array('APP_KEYS'),
   },
+  url: env('PUBLIC_URL', 'http://localhost:1337'),
+  proxy: env.bool('USE_PROXY', false),
 });

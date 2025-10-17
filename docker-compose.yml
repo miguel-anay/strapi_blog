@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  strapi:
+    container_name: strapi
+    image: strapi-app:latest
+    restart: unless-stopped
+    environment:
+      # Server
+      HOST: 0.0.0.0
+      PORT: 1337
+      NODE_ENV: production
+
+      # Development: Desactivar cookies seguras para HTTP local
+      ADMIN_SECURE_COOKIE: false
+
+      # Database - SQLite
+      DATABASE_CLIENT: sqlite
+      DATABASE_FILENAME: .tmp/data.db
+
+      # Secrets (mantén tus propios valores del .env)
+      APP_KEYS: ${APP_KEYS}
+      API_TOKEN_SALT: ${API_TOKEN_SALT}
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET}
+      TRANSFER_TOKEN_SALT: ${TRANSFER_TOKEN_SALT}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "1337:1337"
+    volumes:
+      # Persistir la base de datos SQLite
+      - ./data:/app/.tmp
+      # Persistir los uploads
+      - ./public/uploads:/app/public/uploads
+    networks:
+      - strapi
+
+networks:
+  strapi:
+    name: strapi-network
+    driver: bridge

@@ -5,12 +5,5 @@
     "icon": "indent"
   },
   "options": {},
-  "attributes": {
-    "title": {
-      "type": "string"
-    },
-    "body": {
-      "type": "text"
-    }
-  }
+  "attributes": {}
 }

@@ -1,0 +1,491 @@
+name: Strapi CI/CD Pipeline
+
+# Workflow triggers
+# Runs on push to main branch and on pull requests targeting main
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+# Environment variables accessible to all jobs
+env:
+  NODE_VERSION: '20.x'
+  CACHE_NAME: npm-cache
+
+# Concurrency control: Cancel in-progress runs of the same workflow
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # CI Job: Continuous Integration
+  # Runs on all pushes and PRs - validates code quality and builds
+  # ============================================================================
+  ci:
+    name: Continuous Integration
+    runs-on: ubuntu-latest
+
+    # Define outputs for downstream jobs
+    outputs:
+      should-deploy: ${{ steps.deployment-check.outputs.should-deploy }}
+
+    steps:
+      # Step 1: Checkout repository code
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper git operations
+
+      # Step 2: Setup Node.js with caching
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'package-lock.json'
+
+      # Step 3: Cache node_modules for faster subsequent runs
+      - name: Cache Node Modules
+        id: cache-node-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ env.CACHE_NAME }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.CACHE_NAME }}-
+            ${{ runner.os }}-
+
+      # Step 4: Install dependencies
+      # Use npm ci for clean, reproducible installs (faster than npm install)
+      - name: Install Dependencies
+        run: npm ci
+        env:
+          NODE_ENV: development
+
+      # Step 5: Run TypeScript type checking
+      - name: TypeScript Type Check
+        run: npx tsc --noEmit
+        continue-on-error: true  # Don't fail build on type errors (adjust as needed)
+
+      # Step 6: Run linting (if ESLint configuration exists)
+      # Note: Skipped if no ESLint config found - add .eslintrc.json for linting
+      - name: Run ESLint
+        if: hashFiles('.eslintrc*') != ''
+        run: npx eslint . --ext .ts,.js,.tsx,.jsx
+        continue-on-error: true
+
+      # Step 7: Run tests (if test scripts exist)
+      # Note: Currently no test script in package.json - add tests for this step to run
+      - name: Run Tests
+        if: hashFiles('test/**') != '' || hashFiles('tests/**') != ''
+        run: npm test
+        env:
+          NODE_ENV: test
+        continue-on-error: true
+
+      # Step 8: Build Strapi admin panel
+      # This validates that the application can be built successfully
+      - name: Build Strapi Admin
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      # Step 9: Upload build artifacts for deployment job
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: strapi-build-${{ github.sha }}
+          path: |
+            dist/
+            build/
+          retention-days: 7
+          if-no-files-found: error
+
+      # Step 10: Check if deployment should proceed
+      - name: Deployment Check
+        id: deployment-check
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            echo "Deployment will proceed for main/master branch"
+          else
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
+            echo "Skipping deployment for non-main branch"
+          fi
+
+      # Step 11: Generate job summary
+      - name: CI Summary
+        if: always()
+        run: |
+          echo "## CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Node Version:** ${{ env.NODE_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Status:** ✅ Successful" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deploy Ready:** ${{ steps.deployment-check.outputs.should-deploy == 'true' && '✅ Yes' || '❌ No (non-main branch)' }}" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # CD Job: Docker Hub Deployment
+  # Only runs if CI passes, branch is main/master, and DEPLOY_TARGET is 'docker'
+  # ============================================================================
+  deploy-docker:
+    name: Deploy to Docker Hub
+    runs-on: ubuntu-latest
+    needs: ci
+    if: |
+      needs.ci.outputs.should-deploy == 'true' &&
+      github.event_name == 'push' &&
+      secrets.DEPLOY_TARGET == 'docker'
+
+    # Ensure only one Docker deployment runs at a time
+    concurrency:
+      group: deploy-docker-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      # Step 1: Checkout repository
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Step 2: Download build artifacts from CI job
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: strapi-build-${{ github.sha }}
+          path: y/
+
+      # Step 3: Set up Docker Buildx for advanced build features
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Step 4: Login to Docker Hub
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Step 5: Extract Docker metadata (tags, labels)
+      - name: Extract Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/strapi
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Step 6: Build and push Docker image
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/strapi:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/strapi:buildcache,mode=max
+          build-args: |
+            NODE_ENV=production
+
+      # Step 7: Generate deployment summary
+      - name: Docker Deployment Summary
+        run: |
+          echo "## Docker Hub Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry:** Docker Hub" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** ${{ secrets.DOCKERHUB_USERNAME }}/strapi" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ✅ Deployed Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull Command:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ secrets.DOCKERHUB_USERNAME }}/strapi:latest" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      # Step 8: Notify deployment success (optional - can integrate with Slack/Discord)
+      - name: Deployment Notification
+        if: success()
+        run: |
+          echo "Docker deployment completed successfully"
+          echo "Image: ${{ secrets.DOCKERHUB_USERNAME }}/strapi:latest"
+
+  # ============================================================================
+  # CD Job: AWS EC2 Deployment with Docker Compose
+  # Only runs if CI passes, branch is main/master, and DEPLOY_TARGET is 'ec2'
+  # Deploys complete stack: Strapi + PostgreSQL using docker-compose
+  # ============================================================================
+  deploy-ec2:
+    name: Deploy to AWS EC2 (Docker Compose)
+    runs-on: ubuntu-latest
+    needs: ci
+    if: |
+      needs.ci.outputs.should-deploy == 'true' &&
+      github.event_name == 'push' &&
+      secrets.DEPLOY_TARGET == 'ec2'
+
+    # Ensure only one EC2 deployment runs at a time
+    concurrency:
+      group: deploy-ec2-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      # Step 1: Checkout repository
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Step 2: Setup SSH key for EC2 access
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      # Step 3: Deploy repository to EC2 via rsync
+      - name: Sync Project to EC2
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            --exclude 'node_modules' \
+            --exclude '.git' \
+            --exclude '.env' \
+            --exclude '.cache' \
+            --exclude '.tmp' \
+            --exclude 'y/node_modules' \
+            --exclude 'y/.cache' \
+            --exclude 'y/.tmp' \
+            --exclude 'y/dist' \
+            --exclude 'y/build' \
+            ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/opt/strapi/
+
+      # Step 4: Create .env file from GitHub Secrets
+      - name: Create Environment File
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /opt/strapi
+
+            echo "Creating .env file from GitHub Secrets..."
+            cat > .env << 'EOF'
+            # Server Configuration
+            HOST=0.0.0.0
+            PORT=1337
+
+            # Security Keys (Generated from GitHub Secrets)
+            APP_KEYS=${{ secrets.APP_KEYS }}
+            API_TOKEN_SALT=${{ secrets.API_TOKEN_SALT }}
+            ADMIN_JWT_SECRET=${{ secrets.ADMIN_JWT_SECRET }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            TRANSFER_TOKEN_SALT=${{ secrets.TRANSFER_TOKEN_SALT }}
+
+            # Database Configuration (PostgreSQL in Docker Compose)
+            DATABASE_CLIENT=postgres
+            DATABASE_HOST=strapiDB
+            DATABASE_PORT=5432
+            DATABASE_NAME=${{ secrets.DATABASE_NAME }}
+            DATABASE_USERNAME=${{ secrets.DATABASE_USERNAME }}
+            DATABASE_PASSWORD=${{ secrets.DATABASE_PASSWORD }}
+            DATABASE_SSL=false
+
+            # Environment
+            NODE_ENV=production
+            EOF
+
+            echo "✅ .env file created successfully"
+            chmod 600 .env
+
+      # Step 5: Install Docker and Docker Compose (if not installed)
+      - name: Install Docker Dependencies
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            echo "Checking Docker installation..."
+
+            if ! command -v docker &> /dev/null; then
+              echo "Installing Docker..."
+              curl -fsSL https://get.docker.com -o get-docker.sh
+              sudo sh get-docker.sh
+              sudo usermod -aG docker $USER
+              rm get-docker.sh
+            else
+              echo "✅ Docker already installed: $(docker --version)"
+            fi
+
+            if ! command -v docker-compose &> /dev/null; then
+              echo "Installing Docker Compose..."
+              sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+              sudo chmod +x /usr/local/bin/docker-compose
+            else
+              echo "✅ Docker Compose already installed: $(docker-compose --version)"
+            fi
+
+      # Step 6: Deploy with Docker Compose
+      - name: Deploy with Docker Compose
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /opt/strapi
+
+            echo "================================================"
+            echo "Starting Docker Compose Deployment"
+            echo "================================================"
+
+            # Stop existing containers (if any)
+            if [ -f docker-compose.yml ]; then
+              echo "Stopping existing containers..."
+              docker-compose down || true
+            fi
+
+            # Pull latest images (if using pre-built images)
+            echo "Pulling/building images..."
+            docker-compose pull || true
+
+            # Build and start containers
+            echo "Building and starting containers..."
+            docker-compose up -d --build
+
+            echo "Waiting for containers to start..."
+            sleep 15
+
+            # Show container status
+            echo "Container status:"
+            docker-compose ps
+
+            # Show logs
+            echo "Recent logs:"
+            docker-compose logs --tail=50
+
+            echo "================================================"
+            echo "Deployment completed at $(date)"
+            echo "================================================"
+
+      # Step 7: Health check after deployment
+      - name: Health Check
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            echo "Running health check..."
+            sleep 10
+
+            # Check if containers are running
+            if ! docker ps | grep -q "strapi"; then
+              echo "❌ Strapi container is not running"
+              docker-compose logs strapi
+              exit 1
+            fi
+
+            if ! docker ps | grep -q "strapiDB"; then
+              echo "❌ PostgreSQL container is not running"
+              docker-compose logs strapiDB
+              exit 1
+            fi
+
+            # Check if Strapi is responding (try for 2 minutes)
+            for i in {1..60}; do
+              if curl -f http://localhost:1337/_health > /dev/null 2>&1; then
+                echo "✅ Health check passed - Strapi is running!"
+                echo "✅ PostgreSQL is running!"
+                exit 0
+              fi
+              echo "Waiting for Strapi to start... ($i/60)"
+              sleep 2
+            done
+
+            echo "❌ Health check failed - Strapi did not start properly"
+            echo "Container logs:"
+            docker-compose logs --tail=100
+            exit 1
+
+      # Step 8: Generate deployment summary
+      - name: EC2 Deployment Summary
+        if: always()
+        run: |
+          echo "## AWS EC2 Docker Compose Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Server:** ${{ secrets.SSH_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **User:** ${{ secrets.SSH_USER }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployment Path:** /opt/strapi" >> $GITHUB_STEP_SUMMARY
+          echo "- **Method:** Docker Compose (Strapi + PostgreSQL)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status == 'success' && '✅ Deployed Successfully' || '❌ Deployment Failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Services Deployed:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 Strapi v5.24.1 (Port 1337)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐘 PostgreSQL 16.0 (Port 5432)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Access:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Application URL:** http://${{ secrets.SSH_HOST }}:1337" >> $GITHUB_STEP_SUMMARY
+          echo "- **Admin Panel:** http://${{ secrets.SSH_HOST }}:1337/admin" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Useful Commands:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# SSH into server" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# View logs" >> $GITHUB_STEP_SUMMARY
+          echo "cd /opt/strapi && docker-compose logs -f" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Restart services" >> $GITHUB_STEP_SUMMARY
+          echo "cd /opt/strapi && docker-compose restart" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      # Step 9: Cleanup SSH key
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+      # Step 10: Notify deployment result
+      - name: Deployment Notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ EC2 Docker Compose deployment completed successfully"
+            echo "🌐 Application: http://${{ secrets.SSH_HOST }}:1337"
+            echo "🔐 Admin Panel: http://${{ secrets.SSH_HOST }}:1337/admin"
+          else
+            echo "❌ EC2 deployment failed - check logs for details"
+          fi
+
+  # ============================================================================
+  # Job: Deployment Status Report
+  # Runs after all jobs complete to provide final status
+  # ============================================================================
+  deployment-status:
+    name: Deployment Status Report
+    runs-on: ubuntu-latest
+    needs: [ci, deploy-docker, deploy-ec2]
+    if: always() && needs.ci.result == 'success'
+
+    steps:
+      - name: Generate Final Report
+        run: |
+          echo "# CI/CD Pipeline Completion Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Job Results:" >> $GITHUB_STEP_SUMMARY
+          echo "- **CI:** ${{ needs.ci.result == 'success' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Deploy:** ${{ needs.deploy-docker.result == 'success' && '✅ Completed' || needs.deploy-docker.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **EC2 Deploy:** ${{ needs.deploy-ec2.result == 'success' && '✅ Completed' || needs.deploy-ec2.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run:** [${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY

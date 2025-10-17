@@ -7,8 +7,8 @@
   },
   "options": {},
   "attributes": {
-    "body": {
-      "type": "richtext"
+    "body_bloq": {
+      "type": "blocks"
     }
   }
 }
