@@ -133,7 +133,8 @@ jobs:
 
   # ============================================================================
   # CD Job: Docker Hub Deployment
-  # Only runs if CI passes, branch is main/master, and DEPLOY_TARGET is 'docker'
+  # Runs on every push to main/master after CI passes
+  # Builds and pushes Docker image to Docker Hub
   # ============================================================================
   deploy-docker:
     name: Deploy to Docker Hub
@@ -141,8 +142,7 @@ jobs:
     needs: ci
     if: |
       needs.ci.outputs.should-deploy == 'true' &&
-      github.event_name == 'push' &&
-      secrets.DEPLOY_TARGET == 'docker'
+      github.event_name == 'push'
 
     # Ensure only one Docker deployment runs at a time
     concurrency:
@@ -177,7 +177,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/strapi
+          images: k3n5h1n/strapi-blog
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -221,17 +221,18 @@ jobs:
 
   # ============================================================================
   # CD Job: AWS EC2 Deployment with Docker Compose
-  # Only runs if CI passes, branch is main/master, and DEPLOY_TARGET is 'ec2'
+  # Only runs in PRODUCTION: main/master branch + EC2 secrets configured
   # Deploys complete stack: Strapi + PostgreSQL using docker-compose
+  # Requires: SSH_KEY, SSH_HOST, SSH_USER secrets to be configured
   # ============================================================================
   deploy-ec2:
-    name: Deploy to AWS EC2 (Docker Compose)
+    name: Deploy to AWS EC2 (Production)
     runs-on: ubuntu-latest
-    needs: ci
+    needs: [ci, deploy-docker]
     if: |
       needs.ci.outputs.should-deploy == 'true' &&
       github.event_name == 'push' &&
-      secrets.DEPLOY_TARGET == 'ec2'
+      secrets.SSH_KEY != ''
 
     # Ensure only one EC2 deployment runs at a time
     concurrency:
@@ -346,33 +347,33 @@ jobs:
             cd /opt/strapi
 
             echo "================================================"
-            echo "Starting Docker Compose Deployment"
+            echo "Starting Production Deployment"
             echo "================================================"
 
             # Stop existing containers (if any)
-            if [ -f docker-compose.yml ]; then
+            if [ -f docker-compose.prod.yml ]; then
               echo "Stopping existing containers..."
-              docker-compose down || true
+              docker-compose -f docker-compose.prod.yml down || true
             fi
 
-            # Pull latest images (if using pre-built images)
-            echo "Pulling/building images..."
-            docker-compose pull || true
+            # Pull latest image from Docker Hub
+            echo "Pulling latest image from Docker Hub..."
+            docker pull k3n5h1n/strapi-blog:latest
 
-            # Build and start containers
-            echo "Building and starting containers..."
-            docker-compose up -d --build
+            # Start containers with production compose file
+            echo "Starting containers with latest image..."
+            docker-compose -f docker-compose.prod.yml up -d
 
             echo "Waiting for containers to start..."
             sleep 15
 
             # Show container status
             echo "Container status:"
-            docker-compose ps
+            docker-compose -f docker-compose.prod.yml ps
 
             # Show logs
             echo "Recent logs:"
-            docker-compose logs --tail=50
+            docker-compose -f docker-compose.prod.yml logs --tail=50
 
             echo "================================================"
             echo "Deployment completed at $(date)"
@@ -392,13 +393,13 @@ jobs:
             # Check if containers are running
             if ! docker ps | grep -q "strapi"; then
               echo "❌ Strapi container is not running"
-              docker-compose logs strapi
+              docker-compose -f docker-compose.prod.yml logs strapi
               exit 1
             fi
 
             if ! docker ps | grep -q "strapiDB"; then
               echo "❌ PostgreSQL container is not running"
-              docker-compose logs strapiDB
+              docker-compose -f docker-compose.prod.yml logs strapiDB
               exit 1
             fi
 
@@ -415,7 +416,7 @@ jobs:
 
             echo "❌ Health check failed - Strapi did not start properly"
             echo "Container logs:"
-            docker-compose logs --tail=100
+            docker-compose -f docker-compose.prod.yml logs --tail=100
             exit 1
 
       # Step 8: Generate deployment summary

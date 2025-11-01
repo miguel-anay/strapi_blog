@@ -3,7 +3,7 @@ version: "3.8"
 services:
   strapi:
     container_name: strapi
-    image: ${DOCKER_IMAGE:-k3n5h1n/strapi-blog:latest}
+    image: k3n5h1n/strapi-blog:latest
     restart: unless-stopped
     environment:
       # Server
@@ -14,10 +14,16 @@ services:
 
       # Production: Cookies seguras para HTTPS
       ADMIN_SECURE_COOKIE: ${ADMIN_SECURE_COOKIE:-true}
+      USE_PROXY: ${USE_PROXY:-false}
 
-      # Database - SQLite
-      DATABASE_CLIENT: sqlite
-      DATABASE_FILENAME: data.db
+      # Database - PostgreSQL for production
+      DATABASE_CLIENT: postgres
+      DATABASE_HOST: strapiDB
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME:-strapi}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-strapi}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_SSL: false
 
       # Secrets
       APP_KEYS: ${APP_KEYS}
@@ -29,12 +35,12 @@ services:
     ports:
       - "1337:1337"
     volumes:
-      # Persistir la base de datos SQLite
-      - ./data:/app/.tmp
       # Persistir los uploads
-      - ./public/uploads:/app/public/uploads
+      - ./uploads:/app/public/uploads
     networks:
       - strapi
+    depends_on:
+      - strapiDB
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:1337/_health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
@@ -42,7 +48,24 @@ services:
       retries: 3
       start_period: 60s
 
+  strapiDB:
+    container_name: strapiDB
+    platform: linux/amd64
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME:-strapi}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME:-strapi}
+    volumes:
+      - strapi-data:/var/lib/postgresql/data/
+    networks:
+      - strapi
+
 networks:
   strapi:
     name: strapi-network
     driver: bridge
+
+volumes:
+  strapi-data:

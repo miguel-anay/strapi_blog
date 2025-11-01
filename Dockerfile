@@ -29,7 +29,8 @@ RUN npm install
 COPY . .
 
 # Variables de entorno para build
-ENV NODE_ENV=production
+ARG NODE_ENV=development
+ENV NODE_ENV=${NODE_ENV}
 
 # Construir el panel de administración de Strapi
 RUN npm run build
@@ -78,7 +79,7 @@ USER strapi
 EXPOSE 1337
 
 # Variables de entorno por defecto
-ENV NODE_ENV=production \
+ENV NODE_ENV=development \
     HOST=0.0.0.0 \
     PORT=1337
 

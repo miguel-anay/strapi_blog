@@ -2,22 +2,42 @@
 
 ## 🔑 Lista Completa de Secrets Necesarios
 
-### Para Deployment en EC2 con Docker Compose
+### Secrets Obligatorios (Docker Hub)
 
 | Secret | Descripción | Cómo Generarlo | Ejemplo |
 |--------|-------------|----------------|---------|
+| **DOCKERHUB_USERNAME** | Tu usuario de Docker Hub | Regístrate en hub.docker.com | `k3n5h1n` |
+| **DOCKERHUB_TOKEN** | Token de acceso de Docker Hub | Account Settings → Security → New Access Token | `dckr_pat_abc123...` |
 | **APP_KEYS** | 4 claves de seguridad separadas por comas | `openssl rand -base64 32` (4 veces) | `abc123==,def456==,ghi789==,jkl012==` |
 | **API_TOKEN_SALT** | Salt para tokens API | `openssl rand -base64 32` | `Xy9ZkL3mN8pQ...` |
 | **ADMIN_JWT_SECRET** | Secret para JWT admin | `openssl rand -base64 32` | `Bv2WxC5yT9rE...` |
 | **JWT_SECRET** | Secret para JWT general | `openssl rand -base64 32` | `Km4HfD7sP1qA...` |
 | **TRANSFER_TOKEN_SALT** | Salt para tokens transfer | `openssl rand -base64 32` | `Np6GjV3xK8wL...` |
-| **DATABASE_NAME** | Nombre de la base de datos | Elige uno | `strapi` |
+
+### Secrets Opcionales (Solo para Deploy a EC2 en Producción)
+
+| Secret | Descripción | Cómo Generarlo | Ejemplo |
+|--------|-------------|----------------|---------|
+| **DATABASE_NAME** | Nombre de la base de datos PostgreSQL | Elige uno | `strapi` |
 | **DATABASE_USERNAME** | Usuario de PostgreSQL | Elige uno | `strapi` |
 | **DATABASE_PASSWORD** | Contraseña de PostgreSQL | `openssl rand -base64 20` | `Aq3Xz9Ym2Kp...` |
-| **DEPLOY_TARGET** | Tipo de deployment | Escribe manualmente | `ec2` |
 | **SSH_HOST** | IP pública de EC2 | Ve a AWS Console | `3.25.123.45` |
 | **SSH_USER** | Usuario SSH de EC2 | Según tu AMI | `ubuntu` o `ec2-user` |
 | **SSH_KEY** | Clave privada SSH completa | `cat tu-clave.pem` | `-----BEGIN RSA...` |
+
+---
+
+## 🔄 Flujo CI/CD
+
+### Push a main/master:
+1. ✅ **CI**: Tests y build del proyecto
+2. ✅ **Docker Hub**: Siempre publica la imagen `k3n5h1n/strapi-blog:latest`
+3. 🔀 **EC2**: Solo si están configurados los secrets SSH (`SSH_KEY`, `SSH_HOST`, `SSH_USER`)
+
+### Push a otras ramas:
+1. ✅ **CI**: Tests y build del proyecto
+2. ❌ No publica a Docker Hub
+3. ❌ No hace deploy a EC2
 
 ---
 
@@ -29,7 +49,11 @@ Ejecuta esto en tu terminal (Linux/Mac/WSL/Git Bash):
 
 ```bash
 # Genera todas las claves de una vez
-echo "=== STRAPI SECURITY KEYS ==="
+echo "=== DOCKER HUB (OBLIGATORIO) ==="
+echo "DOCKERHUB_USERNAME=k3n5h1n"
+echo "DOCKERHUB_TOKEN=VE_A_DOCKER_HUB_PARA_GENERAR_TOKEN"
+echo ""
+echo "=== STRAPI SECURITY KEYS (OBLIGATORIO) ==="
 echo "APP_KEYS=$(openssl rand -base64 32),$(openssl rand -base64 32),$(openssl rand -base64 32),$(openssl rand -base64 32)"
 echo ""
 echo "API_TOKEN_SALT=$(openssl rand -base64 32)"
@@ -37,17 +61,25 @@ echo "ADMIN_JWT_SECRET=$(openssl rand -base64 32)"
 echo "JWT_SECRET=$(openssl rand -base64 32)"
 echo "TRANSFER_TOKEN_SALT=$(openssl rand -base64 32)"
 echo ""
-echo "=== DATABASE ==="
+echo "=== EC2 DEPLOYMENT (OPCIONAL - Solo para producción) ==="
 echo "DATABASE_NAME=strapi"
 echo "DATABASE_USERNAME=strapi"
 echo "DATABASE_PASSWORD=$(openssl rand -base64 20)"
-echo ""
-echo "=== DEPLOYMENT ==="
-echo "DEPLOY_TARGET=ec2"
 echo "SSH_HOST=TU_IP_PUBLICA_EC2"
 echo "SSH_USER=ubuntu"
 echo "SSH_KEY=CONTENIDO_DE_TU_ARCHIVO_PEM"
 ```
+
+### Cómo obtener DOCKERHUB_TOKEN:
+
+1. Ve a [Docker Hub](https://hub.docker.com)
+2. Login → Account Settings → Security
+3. Click en **New Access Token**
+4. Access Token Description: `GitHub Actions CI/CD`
+5. Access permissions: **Read, Write, Delete**
+6. Click **Generate**
+7. Copia el token (solo se muestra una vez)
+8. Guárdalo en GitHub Secrets como `DOCKERHUB_TOKEN`
 
 ### Paso 2: Copiar SSH Key
 
@@ -76,56 +108,67 @@ cat tu-clave.pem
 4. Click en **New repository secret** (botón verde)
 5. Agrega cada secret uno por uno:
 
-### Secret #1: APP_KEYS
+### Secret #1: DOCKERHUB_USERNAME
+- **Name**: `DOCKERHUB_USERNAME`
+- **Value**: Tu usuario de Docker Hub (ejemplo: `k3n5h1n`)
+
+### Secret #2: DOCKERHUB_TOKEN
+- **Name**: `DOCKERHUB_TOKEN`
+- **Value**: El token generado en Docker Hub
+  ```
+  dckr_pat_aBcDeFgHiJkLmNoPqRsTuVwXyZ123456
+  ```
+
+### Secret #3: APP_KEYS
 - **Name**: `APP_KEYS`
 - **Value**: Las 4 claves separadas por comas (SIN espacios)
   ```
   Xy9ZkL3mN8pQ==,Bv2WxC5yT9rE==,Km4HfD7sP1qA==,Np6GjV3xK8wL==
   ```
 
-### Secret #2: API_TOKEN_SALT
+### Secret #4: API_TOKEN_SALT
 - **Name**: `API_TOKEN_SALT`
 - **Value**: La clave generada con openssl
 
-### Secret #3: ADMIN_JWT_SECRET
+### Secret #5: ADMIN_JWT_SECRET
 - **Name**: `ADMIN_JWT_SECRET`
 - **Value**: La clave generada con openssl
 
-### Secret #4: JWT_SECRET
+### Secret #6: JWT_SECRET
 - **Name**: `JWT_SECRET`
 - **Value**: La clave generada con openssl
 
-### Secret #5: TRANSFER_TOKEN_SALT
+### Secret #7: TRANSFER_TOKEN_SALT
 - **Name**: `TRANSFER_TOKEN_SALT`
 - **Value**: La clave generada con openssl
 
-### Secret #6: DATABASE_NAME
+---
+
+## Secrets Opcionales (Solo si despliegas a EC2)
+
+### Secret #8: DATABASE_NAME
 - **Name**: `DATABASE_NAME`
 - **Value**: `strapi` (o el nombre que prefieras)
 
-### Secret #7: DATABASE_USERNAME
+### Secret #9: DATABASE_USERNAME
 - **Name**: `DATABASE_USERNAME`
 - **Value**: `strapi` (o el usuario que prefieras)
 
-### Secret #8: DATABASE_PASSWORD
+### Secret #10: DATABASE_PASSWORD
 - **Name**: `DATABASE_PASSWORD`
 - **Value**: Una contraseña segura generada
 
-### Secret #9: DEPLOY_TARGET
-- **Name**: `DEPLOY_TARGET`
-- **Value**: `ec2` (exactamente así, en minúsculas)
-
-### Secret #10: SSH_HOST
+### Secret #11: SSH_HOST
 - **Name**: `SSH_HOST`
 - **Value**: Tu IP pública de EC2 (ejemplo: `3.25.123.45`)
 
-### Secret #11: SSH_USER
+### Secret #12: SSH_USER
 - **Name**: `SSH_USER`
 - **Value**:
   - `ubuntu` (si usas Ubuntu)
   - `ec2-user` (si usas Amazon Linux 2)
 
-### Secret #12: SSH_KEY
+### Secret #13: SSH_KEY
 - **Name**: `SSH_KEY`
 - **Value**: Contenido COMPLETO de tu archivo `.pem`
   ```
@@ -139,10 +182,25 @@ cat tu-clave.pem
 
 ## ✅ Verificación
 
-Después de agregar todos los secrets, deberías ver esto en GitHub:
+### Secrets Mínimos (Docker Hub únicamente):
 
 ```
-Repository secrets (12)
+Repository secrets (7)
+├── DOCKERHUB_USERNAME       (Set 1 minute ago)
+├── DOCKERHUB_TOKEN          (Set 1 minute ago)
+├── APP_KEYS                 (Set 1 minute ago)
+├── API_TOKEN_SALT           (Set 1 minute ago)
+├── ADMIN_JWT_SECRET         (Set 1 minute ago)
+├── JWT_SECRET               (Set 1 minute ago)
+└── TRANSFER_TOKEN_SALT      (Set 1 minute ago)
+```
+
+### Secrets Completos (Docker Hub + EC2):
+
+```
+Repository secrets (13)
+├── DOCKERHUB_USERNAME       (Set 1 minute ago)
+├── DOCKERHUB_TOKEN          (Set 1 minute ago)
 ├── APP_KEYS                 (Set 1 minute ago)
 ├── API_TOKEN_SALT           (Set 1 minute ago)
 ├── ADMIN_JWT_SECRET         (Set 1 minute ago)
@@ -151,7 +209,6 @@ Repository secrets (12)
 ├── DATABASE_NAME            (Set 1 minute ago)
 ├── DATABASE_USERNAME        (Set 1 minute ago)
 ├── DATABASE_PASSWORD        (Set 1 minute ago)
-├── DEPLOY_TARGET            (Set 1 minute ago)
 ├── SSH_HOST                 (Set 1 minute ago)
 ├── SSH_USER                 (Set 1 minute ago)
 └── SSH_KEY                  (Set 1 minute ago)

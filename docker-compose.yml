@@ -3,22 +3,29 @@ version: "3.8"
 services:
   strapi:
     container_name: strapi
-    image: strapi-app:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: ${NODE_ENV:-development}
+    image: ${DOCKER_IMAGE:-strapi_blog:local}
     restart: unless-stopped
     environment:
       # Server
-      HOST: 0.0.0.0
-      PORT: 1337
-      NODE_ENV: production
+      HOST: ${HOST:-0.0.0.0}
+      PORT: ${PORT:-1337}
+      NODE_ENV: ${NODE_ENV:-development}
 
-      # Development: Desactivar cookies seguras para HTTP local
-      ADMIN_SECURE_COOKIE: false
+      # Admin & Proxy
+      ADMIN_SECURE_COOKIE: ${ADMIN_SECURE_COOKIE:-false}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      USE_PROXY: ${USE_PROXY:-false}
 
-      # Database - SQLite
-      DATABASE_CLIENT: sqlite
-      DATABASE_FILENAME: .tmp/data.db
+      # Database
+      DATABASE_CLIENT: ${DATABASE_CLIENT:-sqlite}
+      DATABASE_FILENAME: ${DATABASE_FILENAME:-.tmp/data.db}
 
-      # Secrets (mantén tus propios valores del .env)
+      # Security Secrets
       APP_KEYS: ${APP_KEYS}
       API_TOKEN_SALT: ${API_TOKEN_SALT}
       ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET}
