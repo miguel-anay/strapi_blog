@@ -2,9 +2,9 @@ export default ({ env }) => ({
   auth: {
     secret: env('ADMIN_JWT_SECRET'),
     sessions: {
-      // Desactivar cookies seguras en desarrollo local
-      // En producción con HTTPS, esto se maneja automáticamente
-      secureCookie: env.bool('ADMIN_SECURE_COOKIE'),
+      // Desactivar secureCookie para compatibilidad con proxy/load balancer
+      // El proxy maneja HTTPS externamente, pero la conexión interna es HTTP
+      secureCookie: false,
     },
   },
   apiToken: {

@@ -29,7 +29,8 @@ RUN npm install
 COPY . .
 
 # Variables de entorno para build
-ARG NODE_ENV=development
+# Por defecto production, pero puede sobreescribirse con --build-arg NODE_ENV=development
+ARG NODE_ENV=production
 ENV NODE_ENV=${NODE_ENV}
 
 # Construir el panel de administración de Strapi
@@ -78,8 +79,8 @@ USER strapi
 # Exponer puerto de Strapi
 EXPOSE 1337
 
-# Variables de entorno por defecto
-ENV NODE_ENV=development \
+# Variables de entorno por defecto (pueden sobreescribirse en docker-compose)
+ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=1337
 
